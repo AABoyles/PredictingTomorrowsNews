@@ -1,0 +1,32 @@
+---
+title: "Predicting Tomorrow's News, Part 2"
+author: "Anthony A. Boyles"
+output: html_document
+---
+
+(ed. If you haven't read part 1, start there before reading this.)
+
+```{r packages, message=FALSE}
+library("rworldmap")
+library("dplyr")
+library("readr")
+```
+
+## The Naive Approach
+
+In other words, we didn't look before we leapt. The solution? Exploratory Data Analysis.
+
+## Data Exploration
+
+`rworldmap` contains, in addition to the spatial data about country boundaries, some minimal demographic and economic statistics about each country.
+
+## Feature Construction
+
+Because this is a *supervised* learning task, we should build some new, aggregated features using past data. This simplest such aggregation is the all-time count. For each location, we simply count all the events to have occurred in that location. Intuitively, any place which has had more events is very likely to 
+
+There may be relationships between events in specific locations at specific dates of the year. Obvious examples are holidays that fall on specific, immutable dates, like Christmas or New Year.
+
+Alternately, there may be relationships between events and holidays that don't fall on immutable dates. The check that, we can construct a larger time window in which to look. For our purposes, the week before and the week following the current date should suffice.
+
+## Modeling
+

@@ -1,0 +1,100 @@
+---
+title: "Predicting Tomorrow's News"
+author: "Anthony A. Boyles"
+output: html_document
+---
+
+```{r packages, message=FALSE}
+library("rworldmap")
+library("dplyr")
+library("readr")
+```
+
+One of Novetta's areas of deep expertise is Predictive Analytics. One particular domain in which Novetta has developed a unique skillset is spatio-temporal predictions for security issues. I recently presented [a toy model](http://www.abstractsonline.com/pp8/#!/4182/presentation/19422) showcasing this type of analysis at [INFORMS 2016](http://meetings2.informs.org/wordpress/nashville2016/) (and the again at [METSM](http://www.mors.org/Events/Special-Meetings/Emerging-Techniques)).
+
+In the security domain, there are many problems for which we'd like to be able to predict *events*. For the sake of completeness, let's define an event as a type of thing which occurs at a location on the face of the Earth, at a specific time. If we know (as we typically do) what type of thing we're predicting, that leaves us only with the problems of determining the times and locations of these events.
+
+In a typical predictive model, we expect the model to output one useful piece of information. Is this stock going to go up or down? This, in data parlance, is called a *dimension*. However, event predictions require multiple dimensions: time is one, and if we encode location as latitude and longitude, we have at least three. If we were, for example, predicting the location of an event within a skyscraper, we would also need to output the floor on which the event will happen.
+
+However, event predictions require complex models, and often don't work well. A police chief in a large city or a commander in an active theater needs to make decisions about where to send people in the immediate future. They need models that provide *tactically useful* predictions.
+
+To explore this idea, let's unpack the toy model I presented last year. Predictive Models require data; for this model, I used the [Integrated Conflict Early Warning System](https://dataverse.harvard.edu/dataverse/icews), along with the maps and metadata included in the [`rworldmap`](https://journal.r-project.org/archive/2011-1/RJournal_2011-1_South.pdf) package. Let's look at records of protest events in Africa.
+
+```{r}
+Africa <- countriesCoarseLessIslands %>% subset(continent == "Africa")
+countries <- Africa@data$NAME %>% as.character %>% unique
+
+codes <- c("14", as.character(140:145), as.character(1411:1454))
+
+ICEWS <- data.frame()
+for(file in list.files("data", "*.tab$")){
+  ICEWS <- "data/" %>%
+    paste0(file) %>%
+    read_tsv() %>%
+    filter(`CAMEO Code` %in% codes) %>%
+    filter(!is.na(Longitude), !is.na(Latitude)) %>%
+    rbind(ICEWS)
+}
+
+coordinates(ICEWS) <- ~Longitude + Latitude
+
+plot(Africa, col="wheat1", bg="lightblue")
+plot(countriesCoarse, col="grey", add=TRUE)
+plot(Africa, col="wheat1", add=TRUE)
+plot(ICEWS, col=rgb(1, 0, 0, .05), pch=20, add=TRUE)
+```
+
+To construct a predictive model, we need to have a clear idea about what our predictions will look like. A naive approach is to handle each output as a separate regression model and then bring them together. This tends not to work, and we'll see why a bit later.
+
+What does work is to discretize each dimension, and combine them in ways such that you only have a single output. In this case, that output should be something like "probability of a protest in this place in the near future." Now, all we muct do is define "this place" and "near future".
+
+## Slicing a Map
+
+The simplest way to slice a map is to divide it up using squares, cutting along longitude and latitude lines.
+
+```{r boxes}
+plot(Africa, col="wheat1", bg="lightblue", border="transparent")
+plot(countriesCoarse, col="grey", add=TRUE)
+plot(Africa, col="wheat1", border="transparent", add=TRUE)
+Africa %>% spsample(n = 51, type = "regular") %>% PointsToSquares() %>% plot(add=TRUE)
+```
+
+Using squares like this gives you a strong computational advantage over other approaches. To perform geospatial aggregations, we must compare latitudes and longitudes of points with these boundaries. If the boundaries are not parallel to latitude and longitude lines, we must perform a bit of trigonometry. With this approach, we can use simple boolean logic.
+
+What we lose using this approach is good exogenous data collection (more on that in a minute), balance amongst the outcomes across the spaces (more on that in a minute too), perfect coverage of the area of analysis, and *good neighborship*. Some modeling approaches include the behavior of one's neighbors as a factor in one's own outcomes ([Nate Silver's electoral models](http://fivethirtyeight.com/features/election-update-why-our-model-is-more-bullish-than-others-on-trump/) are a good example). Such models benefit from geographic units having more neighbors. If we define a neighbor as a geographic unit which shares a side, squares have only four neighbors. If we define a neighbor as a geographic unit which shares at least one point, squares have eight neighbors, but the four corner-neighbors are on average, farther from the reference square.
+
+The solution to this neighborship problem is a good compromise between more neighbors and uniformly distant neighbors. It's called a hexagon.
+
+```{r}
+plot(Africa, col="wheat1", bg="lightblue", border="transparent")
+plot(countriesCoarse, col="grey", add=TRUE)
+plot(Africa, col="wheat1", border="transparent", add=TRUE)
+Africa %>% spsample(n = 51, type = "hexagonal") %>% PointsToHexagons() %>% plot(add=TRUE)
+```
+
+Hexagonal divisions provide six neighbors which are all exactly uniformly distant. Like squares, they fail to provide perfect coverage of the area. Unlike squares, they do require computationally intensive arithmetic for geospatial comparison operations. They also don't give us any degree of balance among the outcome across the geographic units.
+
+What do I mean by that? Some hexagons cover populous countries, or major cities. They have a lot of protests. Some hexagons cover little more than desert, and accordingly have few protest events. If we wanted balanced outcomes across our units, we might get something like this:
+
+
+```{r spatialkmeans}
+
+```
+
+K-means clustering is an unsupervised machine learning algorithm for figuring out where things cluster. In conjunction with Voronoi tesselation, it gives us polygons which won't have exactly equal numbers of outcomes, but **roughly similar** numbers of outcomes.
+
+If your modeling strategy does not benefit from this, the easiest way to slice a map is to let history do it for you.
+
+```{r}
+plot(Africa, col="wheat1", bg="lightblue")
+plot(countriesCoarse, col="grey", add=TRUE)
+plot(Africa, col="wheat1", add=TRUE)
+```
+
+We already have very good data about these countries. Countries are the unit of analysis at which data are collected.
+
+## Slicing a Timeline
+
+Because time is a single dimension, our handling of it will be a bit simpler. There are, broadly speaking, two good approaches to dividing timelines.
+
+The first and simplest is to use static time windows. In this approach, we simply employ windows of time, like years or months. (Or, more likely in the case of tactically useful models, days or hours.)
